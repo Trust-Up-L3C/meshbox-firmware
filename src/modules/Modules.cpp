@@ -1,4 +1,5 @@
 #include "configuration.h"
+#include "modules/BoxLightModule.h"
 #if !MESHTASTIC_EXCLUDE_INPUTBROKER
 #include "buzz/BuzzerFeedbackThread.h"
 #include "modules/SystemCommandsModule.h"
@@ -168,7 +169,7 @@ void setupModules()
 #endif
     // Note: if the rest of meshtastic doesn't need to explicitly use your module, you do not need to assign the instance
     // to a global variable.
-
+    boxLightModule = new BoxLightModule();
 #if !MESHTASTIC_EXCLUDE_REMOTEHARDWARE
     new RemoteHardwareModule();
 #endif
