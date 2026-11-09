@@ -1,13 +1,13 @@
 #include "BoxLightModule.h"
 #include "configuration.h"
+#include "MeshService.h"
 #include <HardwareSerial.h>
 
 #define BOXLIGHT_PORTNUM ((meshtastic_PortNum)260)
-
-// Link to the peripheral ESP. UART2 on free pads; Serial1 belongs to the GPS driver here.
-#define LINK_RX_PIN 4      // D3 <- periph TX (J1-9)
-#define LINK_TX_PIN 2      // D1 -> periph RX (J1-7)
+#define LINK_RX_PIN 4
+#define LINK_TX_PIN 2
 #define LINK_BAUD 115200
+#define LINK_CHANNEL_INDEX 1   // TrustUp secondary channel
 
 BoxLightModule *boxLightModule;
 static HardwareSerial periphLink(2);
@@ -26,7 +26,7 @@ BoxLightModule::BoxLightModule()
     : SinglePortModule("boxlight", BOXLIGHT_PORTNUM), concurrency::OSThread("BoxLight")
 {
     periphLink.begin(LINK_BAUD, SERIAL_8N1, LINK_RX_PIN, LINK_TX_PIN);
-    LOG_INFO("BoxLight: periphLink UART2 rx=%d tx=%d @%d", LINK_RX_PIN, LINK_TX_PIN, LINK_BAUD);
+    LOG_INFO("BoxLight: link UART2 rx=%d tx=%d @%d", LINK_RX_PIN, LINK_TX_PIN, LINK_BAUD);
 }
 
 ProcessMessage BoxLightModule::handleReceived(const meshtastic_MeshPacket &mp)
@@ -42,12 +42,38 @@ ProcessMessage BoxLightModule::handleReceived(const meshtastic_MeshPacket &mp)
     return ProcessMessage::STOP;
 }
 
+// Event frame from the peripheral -> broadcast on the mesh (same bytes, port 260, TrustUp).
+static void sendEventToMesh(BoxLightModule *m, const uint8_t *payload, uint8_t len);
+
 int32_t BoxLightModule::runOnce()
 {
-    // M3: parse event frames from the peripheral here and send them on port 260.
+    static uint8_t st = 0, len = 0, idx = 0, xr = 0;
+    static uint8_t buf[32];
     while (periphLink.available()) {
-        int c = periphLink.read();
-        LOG_DEBUG("BoxLight: periphLink rx byte 0x%02x", c);
+        uint8_t c = periphLink.read();
+        switch (st) {
+        case 0: if (c == 0xAA) st = 1; break;
+        case 1: if (c == 0 || c > sizeof(buf)) { st = 0; break; } len = c; idx = 0; xr = c; st = 2; break;
+        case 2: buf[idx++] = c; xr ^= c; if (idx == len) st = 3; break;
+        case 3:
+            if (c == xr) sendEventToMesh(this, buf, len);
+            else LOG_WARN("BoxLight: link frame bad checksum");
+            st = 0;
+            break;
+        }
     }
-    return 500;
+    return 50;
+}
+
+static void sendEventToMesh(BoxLightModule *m, const uint8_t *payload, uint8_t len)
+{
+    if (len < 8 || payload[0] != 1) { LOG_WARN("BoxLight: link frame ignored (len/ver)"); return; }
+    meshtastic_MeshPacket *p = m->allocDataPacket();
+    p->to = NODENUM_BROADCAST;
+    p->channel = LINK_CHANNEL_INDEX;
+    p->want_ack = false;
+    p->decoded.payload.size = 8;
+    memcpy(p->decoded.payload.bytes, payload, 8);
+    LOG_INFO("BoxLight: event cmd=0x%02x source=%d -> mesh", payload[1], payload[2]);
+    service->sendToMesh(p, RX_SRC_LOCAL, true);
 }
