@@ -35,11 +35,11 @@ ProcessMessage BoxLightModule::handleReceived(const meshtastic_MeshPacket &mp)
     LOG_INFO("BoxLight: %d bytes from 0x%x", (int)p.payload.size, (unsigned int)mp.from);
     if (p.payload.size < 8) {
         LOG_WARN("BoxLight: short payload, ignored");
-        return ProcessMessage::STOP;
+        return ProcessMessage::CONTINUE;
     }
     LOG_INFO("BoxLight: ver=%d cmd=%d -> periphLink", (int)p.payload.bytes[0], (int)p.payload.bytes[1]);
     linkSend(p.payload.bytes, 8);
-    return ProcessMessage::STOP;
+    return ProcessMessage::CONTINUE;
 }
 
 // Event frame from the peripheral -> broadcast on the mesh (same bytes, port 260, TrustUp).
